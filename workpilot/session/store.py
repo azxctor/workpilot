@@ -81,3 +81,32 @@ class SessionStore:
                 if record.get("type") == "message":
                     history.append(record["data"])
         return history
+
+
+def repair_dangling_tool_use(history: list[dict]) -> tuple[list[dict], bool]:
+    """丢弃尾部未配对的 tool_use 回合。
+
+    崩溃点若在工具执行中途，history 末尾是一条带 tool_use 的 assistant
+    消息，而 tool_result 尚未写入。直接发送这样的 history 会得到 400。
+
+    只需检查最后一条：tool_result 总是紧随其后的 user 消息，
+    所以「最后一条是含 tool_use 的 assistant」等价于「配对断裂」。
+    历史中间不可能断裂 —— 中间的消息当时已成功发送过。
+    """
+    if not history:
+        return history, False
+
+    last = history[-1]
+    if last.get("role") != "assistant":
+        return history, False
+
+    content = last.get("content")
+    if not isinstance(content, list):
+        return history, False
+
+    has_tool_use = any(isinstance(b, dict) and b.get("type") == "tool_use"
+                       for b in content)
+    if not has_tool_use:
+        return history, False
+
+    return history[:-1], True
