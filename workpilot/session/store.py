@@ -18,9 +18,10 @@ def new_session_id() -> str:
 
 
 class SessionStore:
-    def __init__(self, path: Path, meta: dict):
+    def __init__(self, path: Path, meta: dict, on_disk: bool = True):
         self.path = Path(path)
         self.meta = meta
+        self._on_disk = on_disk
 
     @property
     def session_id(self) -> str:
@@ -40,12 +41,11 @@ class SessionStore:
             "model": model,
             "created_at": datetime.now().astimezone().isoformat(),
         }
+        # 刻意不立即落盘：启动后立刻退出不该留下空会话文件。
+        # 空会话的 mtime 最新，会让下次 --continue 匹配到它，
+        # 真正想恢复的会话反被跳过。文件在第一条消息到来时才创建。
         path = sessions_dir / f"{session_id}.jsonl"
-        path.touch()
-        os.chmod(path, 0o600)
-        with path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(meta, ensure_ascii=False) + "\n")
-        return cls(path, meta)
+        return cls(path, meta, on_disk=False)
 
     @classmethod
     def open(cls, path) -> "SessionStore":
@@ -62,12 +62,27 @@ class SessionStore:
                 pass
         return cls(path, meta)
 
+    def _ensure_on_disk(self) -> None:
+        """首次写入时创建文件并写下 meta 行。"""
+        if self._on_disk:
+            return
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        os.chmod(self.path.parent, 0o700)
+        self.path.touch()
+        os.chmod(self.path, 0o600)
+        with self.path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(self.meta, ensure_ascii=False) + "\n")
+        self._on_disk = True
+
     def append_message(self, message: dict) -> None:
+        self._ensure_on_disk()
         with self.path.open("a", encoding="utf-8") as f:
             f.write(json.dumps({"type": "message", "data": message},
                                ensure_ascii=False) + "\n")
 
     def load_history(self) -> list[dict]:
+        if not self.path.exists():
+            return []
         history = []
         with self.path.open("r", encoding="utf-8") as f:
             for line in f:

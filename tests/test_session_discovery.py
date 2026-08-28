@@ -2,10 +2,14 @@ from workpilot.session.store import (SessionStore, find_by_id, find_latest,
                                      list_sessions)
 
 
-def seed(sessions_dir, workspace, first_user_text=None):
+def seed(sessions_dir, workspace, first_user_text="占位提问"):
+    """建一个真实的会话。
+
+    注意：会话文件是延迟创建的 —— 不写任何消息就不会落盘，
+    所以这里必须至少写一条，否则 find_latest 根本看不到它。
+    """
     store = SessionStore.create(sessions_dir, workspace=workspace, model="k3")
-    if first_user_text is not None:
-        store.append_message({"role": "user", "content": first_user_text})
+    store.append_message({"role": "user", "content": first_user_text})
     return store
 
 
@@ -61,10 +65,18 @@ def test_list_sessions_only_shows_current_workspace(tmp_path):
     assert [i["summary"] for i in items] == ["属于 a"]
 
 
-def test_list_sessions_summary_is_empty_for_session_without_messages(tmp_path):
+def test_list_sessions_summary_is_empty_for_a_meta_only_file(tmp_path):
+    """只有 meta 的文件（旧版本遗留）不应让列举崩掉。"""
+    import json
+
     sessions = tmp_path / "sessions"
     ws = tmp_path / "a"
-    seed(sessions, ws)
+    sessions.mkdir(parents=True)
+    meta = {"type": "meta", "session_id": "20260828-120000-aaaa",
+            "workspace": str(ws.resolve()), "model": "k3",
+            "created_at": "2026-08-28T12:00:00+08:00"}
+    (sessions / "20260828-120000-aaaa.jsonl").write_text(
+        json.dumps(meta, ensure_ascii=False) + "\n", encoding="utf-8")
 
     assert list_sessions(sessions, ws)[0]["summary"] == ""
 
@@ -119,3 +131,18 @@ def test_list_sessions_orders_by_recent_activity(tmp_path):
     os.utime(second.path, (2000, 2000))
 
     assert [i["summary"] for i in list_sessions(sessions, ws)] == ["较晚", "较早"]
+
+
+def test_find_latest_ignores_a_session_that_never_got_written(tmp_path):
+    """回归测试：空会话曾遮蔽掉真正想恢复的会话。
+
+    启动后立刻退出会创建 SessionStore 但不落盘。若它留下了文件，
+    其 mtime 最新，--continue 就会匹配到这个空会话。
+    """
+    sessions = tmp_path / "sessions"
+    ws = tmp_path / "a"
+    real = seed(sessions, ws, first_user_text="有内容的会话")
+
+    SessionStore.create(sessions, workspace=ws, model="k3")   # 启动即退出
+
+    assert find_latest(sessions, ws) == real.path

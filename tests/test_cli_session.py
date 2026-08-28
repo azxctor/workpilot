@@ -103,3 +103,41 @@ def test_drive_without_store_still_works(tmp_path):
           Approver(out=buf, is_tty=False).ask)
 
     assert "你好" in buf.getvalue()
+
+
+import pytest
+
+from workpilot.cli import parse_args
+
+
+def test_continue_flag_is_parsed():
+    assert parse_args(["--continue"]).continue_session is True
+    assert parse_args([]).continue_session is False
+
+
+def test_resume_takes_a_session_id():
+    assert parse_args(["--resume", "20260828-204930-a3f9"]).resume == \
+        "20260828-204930-a3f9"
+
+
+def test_sessions_flag_is_parsed():
+    assert parse_args(["--sessions"]).sessions is True
+
+
+def test_continue_and_resume_are_mutually_exclusive(capsys):
+    """必须断言是「互斥」导致的退出。
+
+    只断言 SystemExit 是假绿 —— 参数根本不存在时也会 SystemExit(2)，
+    两种情况分辨不出来。
+    """
+    with pytest.raises(SystemExit):
+        parse_args(["--continue", "--resume", "abc"])
+
+    assert "not allowed with" in capsys.readouterr().err
+
+
+def test_sessions_dir_is_under_home():
+    from workpilot.cli import sessions_dir
+
+    assert sessions_dir().name == "sessions"
+    assert sessions_dir().parent.name == ".workpilot"

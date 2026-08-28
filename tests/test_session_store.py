@@ -28,9 +28,22 @@ def test_session_ids_sort_in_chronological_order():
     assert sorted([later, earlier]) == [earlier, later]
 
 
-def test_create_writes_meta_as_first_line(tmp_path):
+def test_create_does_not_touch_disk_until_first_message(tmp_path):
+    """启动后立刻退出不该留下空会话文件。
+
+    空会话的 mtime 最新，会让下次 --continue 匹配到它，
+    真正想恢复的会话被跳过 —— 上下文就这么丢了。
+    """
+    store = SessionStore.create(tmp_path, workspace=tmp_path, model="k3")
+
+    assert not store.path.exists()
+
+
+def test_meta_is_written_as_first_line_when_first_message_arrives(tmp_path):
     store = SessionStore.create(tmp_path, workspace=tmp_path / "proj",
                                 model="k3")
+
+    store.append_message({"role": "user", "content": "第一句"})
 
     first = json.loads(store.path.read_text(encoding="utf-8").splitlines()[0])
     assert first["type"] == "meta"
@@ -82,8 +95,13 @@ def test_load_skips_a_truncated_last_line(tmp_path):
         {"role": "user", "content": "完整的一条"}]
 
 
-def test_empty_session_loads_as_empty_history(tmp_path):
+def test_session_with_only_meta_loads_as_empty_history(tmp_path):
+    """已落盘但只有 meta 的旧会话（历史遗留）仍要能正常加载。"""
     store = SessionStore.create(tmp_path, workspace=tmp_path, model="k3")
+    store.append_message({"role": "user", "content": "x"})
+    # 手工截断成只剩 meta 行
+    lines = store.path.read_text(encoding="utf-8").splitlines()
+    store.path.write_text(lines[0] + "\n", encoding="utf-8")
 
     assert SessionStore.open(store.path).load_history() == []
 
@@ -92,6 +110,7 @@ def test_files_are_owner_only(tmp_path):
     """会话含文件内容与 bash 输出，可能包含密钥，权限必须收紧。"""
     store = SessionStore.create(tmp_path / "sessions", workspace=tmp_path,
                                 model="k3")
+    store.append_message({"role": "user", "content": "x"})
 
     assert stat.S_IMODE(os.stat(store.path).st_mode) == 0o600
     assert stat.S_IMODE(os.stat(store.path.parent).st_mode) == 0o700
