@@ -82,6 +82,12 @@ class SessionStore:
                     history.append(record["data"])
         return history
 
+    def sync(self, history: list[dict], synced: int) -> int:
+        """把 history 中尚未落盘的部分追加写入，返回新的已同步条数。"""
+        for message in history[synced:]:
+            self.append_message(message)
+        return len(history)
+
 
 def repair_dangling_tool_use(history: list[dict]) -> tuple[list[dict], bool]:
     """丢弃尾部未配对的 tool_use 回合。

@@ -12,22 +12,29 @@ from workpilot.ui.confirm import Approver
 from workpilot.ui.renderer import Renderer
 
 
-def drive(loop, user_input: str, renderer, approve) -> None:
+def drive(loop, user_input: str, renderer, approve, store=None) -> None:
     """驱动一轮对话：内核吐事件 → 渲染 → 遇到请求就问 → 把答案送回内核。
 
-    这十几行就是整个系统的装配点。
+    store 不为 None 时，每转一圈把 history 的增量追加落盘。
+    内核不知道存储的存在 —— 落盘发生在这里，而不是回调进内核。
     """
     gen = loop.run_turn(user_input)
     decision = None
+    synced = 0 if store is None else len(store.load_history())
     while True:
         try:
             event = gen.send(decision)
         except StopIteration:
-            return
+            break
         decision = None
         renderer.handle(event)
         if isinstance(event, ToolCallRequest):
             decision = approve(event)
+        if store is not None:
+            synced = store.sync(loop.history, synced)
+
+    if store is not None:
+        store.sync(loop.history, synced)
 
 
 def parse_args(argv=None):
