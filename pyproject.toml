@@ -1,0 +1,21 @@
+[project]
+name = "workpilot"
+version = "0.1.0"
+description = "终端 AI 编码助手"
+requires-python = ">=3.10"
+dependencies = [
+    "anthropic>=1.0",
+    "rich>=13",
+    "typer>=0.12",
+]
+
+[project.scripts]
+workpilot = "workpilot.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

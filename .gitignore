@@ -24,3 +24,6 @@ venv/
 
 # WorkPilot 本地会话数据
 .workpilot/sessions/
+
+# 可编辑安装产物
+*.egg-link
