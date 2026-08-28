@@ -5,6 +5,7 @@
 
 前置：M1 已交付事件驱动内核、`read_file`、Anthropic/OpenAI 两个 Provider，
 40 个测试全绿，并已用 Kimi k3 跑通真实 agent 链路。
+详见 [M1 回溯规格](2026-08-28-m1-agent-core-design.md)。
 
 ---
 
