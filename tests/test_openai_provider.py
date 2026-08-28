@@ -116,3 +116,68 @@ def test_anthropic_tool_result_message_converts_to_tool_role_messages():
     assert tool_msg["role"] == "tool"
     assert tool_msg["tool_call_id"] == "c1"
     assert "import os" in tool_msg["content"]
+
+
+# ---- 以下针对 Kimi (api.kimi.com/coding/v1) 实测发现的非标准行为 ----
+
+def chunk_with_usage(finish_reason, usage):
+    """Kimi 把 usage 放在 choices[0] 里，而不是标准的顶层。"""
+    return SimpleNamespace(choices=[SimpleNamespace(
+        delta=SimpleNamespace(content=None, tool_calls=None),
+        finish_reason=finish_reason, usage=usage,
+    )], usage=None)
+
+
+def test_reasoning_content_becomes_thinking_chunks():
+    """Kimi 的思考流走 delta.reasoning_content，不是 content。"""
+    r = SimpleNamespace(choices=[SimpleNamespace(
+        delta=SimpleNamespace(content=None, tool_calls=None,
+                              reasoning_content="让我想想"),
+        finish_reason=None)], usage=None)
+    provider, _ = build([r, chunk(finish_reason="stop")])
+
+    out = list(provider.stream(system="s", messages=[], tools=[]))
+
+    assert [c.text for c in out if c.kind == "thinking"] == ["让我想想"]
+
+
+def test_usage_nested_in_choice_is_picked_up():
+    usage = SimpleNamespace(prompt_tokens=194, completion_tokens=104,
+                            cached_tokens=194)
+    provider, _ = build([chunk_with_usage("stop", usage)])
+
+    done = list(provider.stream(system="s", messages=[], tools=[]))[-1]
+
+    assert done.usage.input_tokens == 194
+    assert done.usage.output_tokens == 104
+    assert done.usage.cache_read_input_tokens == 194
+
+
+def test_usage_at_top_level_still_works():
+    """标准 OpenAI 把 usage 放顶层 —— 两种都要支持。"""
+    usage = SimpleNamespace(prompt_tokens=10, completion_tokens=20)
+    r = SimpleNamespace(choices=[SimpleNamespace(
+        delta=SimpleNamespace(content=None, tool_calls=None),
+        finish_reason="stop")], usage=usage)
+    provider, _ = build([r])
+
+    done = list(provider.stream(system="s", messages=[], tools=[]))[-1]
+
+    assert done.usage.input_tokens == 10
+    assert done.usage.output_tokens == 20
+
+
+def test_usage_arriving_as_dict_is_normalized():
+    """SDK 把非标准字段放进 model_extra，usage 到手时是 dict 而不是对象。
+
+    实测 Kimi：choice.usage == {"prompt_tokens": 89, "cached_tokens": 89, ...}
+    """
+    provider, _ = build([chunk_with_usage("stop", {
+        "prompt_tokens": 89, "completion_tokens": 30, "cached_tokens": 89,
+    })])
+
+    done = list(provider.stream(system="s", messages=[], tools=[]))[-1]
+
+    assert done.usage.input_tokens == 89
+    assert done.usage.output_tokens == 30
+    assert done.usage.cache_read_input_tokens == 89

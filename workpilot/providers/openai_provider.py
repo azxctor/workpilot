@@ -4,6 +4,7 @@
 这里负责双向翻译（block 信息量更大，反向选型会丢 thinking 块）。
 """
 import json
+from dataclasses import dataclass
 from typing import Iterator
 
 from workpilot.providers.base import Chunk, ToolCall
@@ -36,6 +37,7 @@ class OpenAIProvider:
         pending: dict[int, dict] = {}
         text_parts: list[str] = []
         finish_reason = ""
+        usage = None
 
         for event in self.client.chat.completions.create(**kwargs):
             if not event.choices:
@@ -46,6 +48,10 @@ class OpenAIProvider:
             if getattr(delta, "content", None):
                 text_parts.append(delta.content)
                 yield Chunk("text", text=delta.content)
+
+            # Kimi / DeepSeek 等把思考流放在 reasoning_content 里
+            if getattr(delta, "reasoning_content", None):
+                yield Chunk("thinking", text=delta.reasoning_content)
 
             for tc in (getattr(delta, "tool_calls", None) or []):
                 slot = pending.setdefault(tc.index, {"id": None, "name": None,
@@ -60,6 +66,12 @@ class OpenAIProvider:
             if choice.finish_reason:
                 finish_reason = choice.finish_reason
 
+            # usage 的位置不统一：标准 OpenAI 在顶层，
+            # Kimi 放在 choices[0] 里 —— 两处都要看
+            usage = (getattr(choice, "usage", None)
+                     or (getattr(choice, "model_extra", None) or {}).get("usage")
+                     or getattr(event, "usage", None) or usage)
+
         blocks: list = []
         if text_parts:
             blocks.append({"type": "text", "text": "".join(text_parts)})
@@ -72,7 +84,7 @@ class OpenAIProvider:
             yield Chunk("tool_call", tool_call=ToolCall(
                 id=slot["id"], name=slot["name"], args=args))
 
-        yield Chunk("done", blocks=blocks, usage=_ZERO_USAGE,
+        yield Chunk("done", blocks=blocks, usage=_normalize_usage(usage),
                     stop_reason="tool_use" if pending else "end_turn")
 
     def count_tokens(self, system: str, messages: list, tools: list) -> int:
@@ -134,10 +146,29 @@ class OpenAIProvider:
         return out
 
 
-class _ZeroUsage:
-    input_tokens = 0
-    output_tokens = 0
-    cache_read_input_tokens = 0
+@dataclass
+class _Usage:
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_input_tokens: int = 0
 
 
-_ZERO_USAGE = _ZeroUsage()
+def _normalize_usage(raw) -> _Usage:
+    """把 OpenAI 风格的 usage 字段名映射成内部统一命名。
+
+    raw 可能是对象，也可能是 dict —— SDK 把非标准字段塞进 model_extra
+    时就是 dict（Kimi 的 choice.usage 即如此）。
+    """
+    if raw is None:
+        return _Usage()
+
+    def pick(key: str) -> int:
+        value = (raw.get(key) if isinstance(raw, dict)
+                 else getattr(raw, key, 0))
+        return value or 0
+
+    return _Usage(
+        input_tokens=pick("prompt_tokens"),
+        output_tokens=pick("completion_tokens"),
+        cache_read_input_tokens=pick("cached_tokens"),
+    )
