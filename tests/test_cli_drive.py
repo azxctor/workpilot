@@ -48,3 +48,18 @@ def test_drive_feeds_approval_decision_back_into_loop():
     assert asked == ["spy"]
     res = next(e for e in renderer.seen if isinstance(e, ToolResult))
     assert res.is_error is True          # 决定确实被回灌进了内核
+
+
+def test_main_wires_approver_not_the_m1_placeholder():
+    """M1 的 approve_safe_only 占位实现必须已被移除。"""
+    import workpilot.cli as cli
+
+    assert not hasattr(cli, "approve_safe_only"), \
+        "占位实现仍在，应已换成 Approver"
+
+
+def test_yolo_flag_is_parsed():
+    from workpilot.cli import parse_args
+
+    assert parse_args(["--yolo"]).yolo is True
+    assert parse_args([]).yolo is False

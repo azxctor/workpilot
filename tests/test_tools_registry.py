@@ -1,3 +1,4 @@
+import pytest
 from pathlib import Path
 
 from workpilot.tools.base import Registry
@@ -34,3 +35,39 @@ def test_registry_get_returns_tool_by_name():
     reg = Registry([tool])
 
     assert reg.get("read_file") is tool
+
+
+ALL_TOOL_CLASSES = [
+    ("read_file", "workpilot.tools.fs", "ReadFileTool"),
+    ("write_file", "workpilot.tools.fs", "WriteFileTool"),
+    ("edit_file", "workpilot.tools.fs", "EditFileTool"),
+    ("list_files", "workpilot.tools.fs", "ListFilesTool"),
+    ("grep", "workpilot.tools.search", "GrepTool"),
+    ("bash", "workpilot.tools.shell", "BashTool"),
+]
+
+
+@pytest.mark.parametrize("name,module,cls_name", ALL_TOOL_CLASSES)
+def test_every_tool_has_a_valid_schema(name, module, cls_name):
+    import importlib
+    cls = getattr(importlib.import_module(module), cls_name)
+    schema = cls(workspace=Path(".")).schema
+
+    assert schema["name"] == name
+    assert schema["description"], f"{name} 缺少 description"
+    assert schema["input_schema"]["type"] == "object"
+    assert isinstance(schema["input_schema"]["properties"], dict)
+    assert isinstance(schema["input_schema"]["required"], list)
+    # required 里的字段必须真的在 properties 里声明过
+    for field in schema["input_schema"]["required"]:
+        assert field in schema["input_schema"]["properties"], \
+            f"{name}: required 字段 {field} 未在 properties 中声明"
+
+
+def test_build_default_registry_contains_all_six_tools(tmp_path):
+    from workpilot.tools.base import build_default_registry
+
+    reg = build_default_registry(tmp_path)
+
+    assert [s["name"] for s in reg.schemas()] == sorted(
+        n for n, _, _ in ALL_TOOL_CLASSES)

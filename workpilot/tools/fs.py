@@ -63,7 +63,27 @@ class ReadFileTool:
 class EditFileTool:
     name = "edit_file"
     danger = Danger.CONFIRM
-    schema: dict = {}
+    schema = {
+        "name": "edit_file",
+        "description": (
+            "对文件做精确的字符串替换。old_string 必须在文件中唯一出现 —— "
+            "若出现 0 次或多次都会报错并拒绝执行。"
+            "因此请先用 read_file 读取文件，再据实构造 old_string；"
+            "若原文太短不唯一，就多带几行上下文。"
+            "修改已有文件请优先用本工具，而不是 write_file 重写全文。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string",
+                         "description": "相对于工作目录的文件路径"},
+                "old_string": {"type": "string",
+                               "description": "要被替换的原文，必须唯一"},
+                "new_string": {"type": "string", "description": "替换成的新内容"},
+            },
+            "required": ["path", "old_string", "new_string"],
+        },
+    }
 
     def __init__(self, workspace: Path):
         self.workspace = Path(workspace)
@@ -92,7 +112,23 @@ class EditFileTool:
 class WriteFileTool:
     name = "write_file"
     danger = Danger.CONFIRM
-    schema: dict = {}
+    schema = {
+        "name": "write_file",
+        "description": (
+            "把内容整体写入文件，会覆盖已有内容。"
+            "用于新建文件；修改已有文件请用 edit_file，避免重写全文。"
+            "缺失的父目录会自动创建。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string",
+                         "description": "相对于工作目录的文件路径"},
+                "content": {"type": "string", "description": "完整的文件内容"},
+            },
+            "required": ["path", "content"],
+        },
+    }
 
     def __init__(self, workspace: Path):
         self.workspace = Path(workspace)
@@ -107,7 +143,21 @@ class WriteFileTool:
 class ListFilesTool:
     name = "list_files"
     danger = Danger.SAFE
-    schema: dict = {}
+    schema = {
+        "name": "list_files",
+        "description": (
+            "递归列出目录下的文件，自动跳过 .git、node_modules、.venv 等噪音目录。"
+            "想了解项目结构时先用它。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string",
+                         "description": "相对于工作目录的目录路径，默认为当前目录"},
+            },
+            "required": [],
+        },
+    }
 
     def __init__(self, workspace: Path):
         self.workspace = Path(workspace)

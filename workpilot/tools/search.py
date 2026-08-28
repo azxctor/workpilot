@@ -68,7 +68,23 @@ def _search_ripgrep(root: Path, base: Path, pattern: str) -> list[tuple]:
 class GrepTool:
     name = "grep"
     danger = Danger.SAFE
-    schema: dict = {}
+    schema = {
+        "name": "grep",
+        "description": (
+            "用正则表达式搜索文件内容，返回 路径:行号: 内容。"
+            "想定位某个函数、变量或字符串在哪里定义/使用时用它，"
+            "比逐个读文件高效得多。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "pattern": {"type": "string", "description": "正则表达式"},
+                "path": {"type": "string",
+                         "description": "搜索范围，默认整个工作目录"},
+            },
+            "required": ["pattern"],
+        },
+    }
 
     def __init__(self, workspace: Path):
         self.workspace = Path(workspace)
