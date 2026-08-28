@@ -110,3 +110,78 @@ def repair_dangling_tool_use(history: list[dict]) -> tuple[list[dict], bool]:
         return history, False
 
     return history[:-1], True
+
+
+def _session_files(sessions_dir) -> list[Path]:
+    """按最近活动时间倒序返回会话文件。
+
+    用 mtime 而非文件名排序，有两个理由：
+
+    1. 文件名的字典序只在【秒级不同】时等于时间序 —— 同一秒创建的两个
+       会话，排序完全由随机后缀决定，先创建的可能被当成最新的。
+    2. 语义上 --continue 想要的是「最近活动过的」会话，而不是「最近创建的」。
+       昨天建、今天又聊过的会话，才是用户想接着聊的那个。
+
+    mtime 相同时用文件名兜底，保证顺序确定。
+    """
+    sessions_dir = Path(sessions_dir)
+    if not sessions_dir.is_dir():
+        return []
+    return sorted(sessions_dir.glob("*.jsonl"),
+                  key=lambda p: (p.stat().st_mtime_ns, p.name), reverse=True)
+
+
+def _read_meta(path: Path) -> dict:
+    """只读第一行拿 meta，不解析整个文件。"""
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            first = f.readline()
+    except OSError:
+        return {}
+    if not first.strip():
+        return {}
+    try:
+        record = json.loads(first)
+    except json.JSONDecodeError:
+        return {}
+    return record if record.get("type") == "meta" else {}
+
+
+def find_latest(sessions_dir, workspace) -> "Path | None":
+    """当前工作目录下最近一次会话。跨目录不匹配，避免串上下文。"""
+    target = str(Path(workspace).resolve())
+    for path in _session_files(sessions_dir):
+        if _read_meta(path).get("workspace") == target:
+            return path
+    return None
+
+
+def find_by_id(sessions_dir, session_id: str) -> "Path | None":
+    path = Path(sessions_dir) / f"{session_id}.jsonl"
+    return path if path.is_file() else None
+
+
+def _first_question(path: Path) -> str:
+    """取第一条 user 消息的文本作为摘要。"""
+    for message in SessionStore.open(path).load_history():
+        if message.get("role") == "user" and isinstance(
+                message.get("content"), str):
+            return message["content"]
+    return ""
+
+
+def list_sessions(sessions_dir, workspace) -> list[dict]:
+    """列出当前工作目录的会话，附首条提问摘要。"""
+    target = str(Path(workspace).resolve())
+    items = []
+    for path in _session_files(sessions_dir):
+        meta = _read_meta(path)
+        if meta.get("workspace") != target:
+            continue
+        items.append({
+            "session_id": meta.get("session_id", path.stem),
+            "created_at": meta.get("created_at", ""),
+            "summary": _first_question(path),
+            "path": path,
+        })
+    return items
