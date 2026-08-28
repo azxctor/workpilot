@@ -4,8 +4,7 @@ from pathlib import Path
 
 from workpilot.agent.events import Danger, ToolCallRequest
 from workpilot.agent.loop import AgentLoop
-from workpilot.config import build_system_prompt
-from workpilot.providers.anthropic_provider import AnthropicProvider
+from workpilot.config import build_provider, build_system_prompt
 from workpilot.tools.base import Registry
 from workpilot.tools.fs import ReadFileTool
 from workpilot.ui.renderer import Renderer
@@ -40,7 +39,7 @@ def approve_safe_only(req: ToolCallRequest) -> str:
 def main() -> None:
     workspace = Path.cwd()
     loop = AgentLoop(
-        provider=AnthropicProvider(),
+        provider=build_provider(),
         registry=Registry([ReadFileTool(workspace=workspace)]),
         ctx_manager=None,
         system_prompt=build_system_prompt(workspace),
@@ -48,7 +47,10 @@ def main() -> None:
     )
     renderer = Renderer()
 
-    renderer.console.print(f"[bold]WorkPilot[/bold] [dim]{workspace}[/dim]")
+    import os
+    model = os.environ.get("WORKPILOT_MODEL", "claude-opus-5")
+    renderer.console.print(
+        f"[bold]WorkPilot[/bold] [dim]{workspace}[/dim]  [dim]({model})[/dim]")
     renderer.console.print("[dim]输入 /exit 退出[/dim]")
 
     while True:
